@@ -96,7 +96,7 @@ checkout_latest_version() {
 # Check for git
 if ! command -v git >/dev/null 2>&1; then
     printf "${YELLOW}Git is not installed.${NC}\n"
-    read -p "Install git now? (Y/n): " INSTALL_GIT
+    read -p "Install git now? (Y/n): " INSTALL_GIT < /dev/tty
     if [[ ! "$INSTALL_GIT" =~ ^[Nn] ]]; then
         install_git
     else
@@ -153,7 +153,7 @@ fi
 cp .env.example .env
 
 # Generate random 12-char admin password
-ADMIN_PASSWORD=$(LC_ALL=C head -c 500 /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 12)
+ADMIN_PASSWORD=$(head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 12)
 
 echo ""
 printf "${CYAN}${BOLD}API Keys Configuration${NC}\n"
@@ -165,12 +165,12 @@ printf "            ${BOLD}openrouter.ai${NC}\n"
 echo ""
 
 # Prompt for API keys (default to "x" if empty to ensure providers are created)
-read -p "ANTHROPIC_API_KEY: " ANTHROPIC_KEY
-read -p "OPENAI_API_KEY: " OPENAI_KEY
-read -p "GOOGLE_API_KEY: " GOOGLE_KEY
-read -p "MISTRAL_API_KEY: " MISTRAL_KEY
-read -p "XAI_API_KEY: " XAI_KEY
-read -p "OPENROUTER_API_KEY: " OPENROUTER_KEY
+read -p "ANTHROPIC_API_KEY: " ANTHROPIC_KEY < /dev/tty
+read -p "OPENAI_API_KEY: " OPENAI_KEY < /dev/tty
+read -p "GOOGLE_API_KEY: " GOOGLE_KEY < /dev/tty
+read -p "MISTRAL_API_KEY: " MISTRAL_KEY < /dev/tty
+read -p "XAI_API_KEY: " XAI_KEY < /dev/tty
+read -p "OPENROUTER_API_KEY: " OPENROUTER_KEY < /dev/tty
 
 [ -z "$ANTHROPIC_KEY" ] && ANTHROPIC_KEY="x"
 [ -z "$OPENAI_KEY" ] && OPENAI_KEY="x"
@@ -184,7 +184,7 @@ printf "${CYAN}${BOLD}Domain Configuration${NC}\n"
 printf "  ${CYAN}localhost = local access only (this computer)${NC}\n"
 printf "  ${CYAN}domain    = public access via your domain (e.g. research.keabase.dev)${NC}\n"
 echo ""
-read -p "Enter domain (or press Enter for localhost): " DOMAIN
+read -p "Enter domain (or press Enter for localhost): " DOMAIN < /dev/tty
 
 USE_OWN_CERT="false"
 
@@ -195,7 +195,7 @@ if [ -n "$DOMAIN" ] && [ "$DOMAIN" != "localhost" ]; then
     echo "  1) Let's Encrypt (automatic, recommended)"
     echo "  2) Own certificate"
     echo ""
-    read -p "Choose option (1/2) [1]: " SSL_OPTION
+    read -p "Choose option (1/2) [1]: " SSL_OPTION < /dev/tty
 
     if [ "$SSL_OPTION" = "2" ]; then
         USE_OWN_CERT="true"
@@ -205,7 +205,7 @@ if [ -n "$DOMAIN" ] && [ "$DOMAIN" != "localhost" ]; then
         printf "  ${BOLD}nginx/ssl/private.key${NC}  - Your private key"
         echo ""
         mkdir -p nginx/ssl
-        read -p "Press Enter when files are in place..."
+        read -p "Press Enter when files are in place..." < /dev/tty
 
         if [ ! -f "nginx/ssl/fullchain.crt" ] || [ ! -f "nginx/ssl/private.key" ]; then
             printf "${YELLOW}Warning: Certificate files not found. Continuing anyway...${NC}\n"
