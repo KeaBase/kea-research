@@ -22,9 +22,12 @@ if (-not $gitInstalled) {
             winget --version | Out-Null
             Write-Host "Installing git via winget..." -ForegroundColor Yellow
             winget install --id Git.Git -e --source winget --accept-package-agreements --accept-source-agreements
-            # Refresh PATH
-            $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-            Write-Host "Git installed. You may need to restart PowerShell and run this script again." -ForegroundColor Yellow
+            Write-Host ""
+            Write-Host "Git has been installed successfully!" -ForegroundColor Green
+            Write-Host "You must restart PowerShell and run this script again." -ForegroundColor Yellow
+            Write-Host ""
+            Read-Host "Press Enter to exit"
+            exit 0
         } catch {
             Write-Host "Error: winget not available. Please install git manually from https://git-scm.com/download/win" -ForegroundColor Red
             exit 1
