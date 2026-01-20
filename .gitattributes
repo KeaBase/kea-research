@@ -1,0 +1,5 @@
+# Store as LF in the repo, convert to native line ending on checkout.
+* text=auto
+
+# Force shell scripts to ALWAYS be LF, even on Windows.
+*.sh text eol=lf
