@@ -49,8 +49,7 @@ try { docker --version | Out-Null } catch {
 # Returns $true if checkout performed, $false if already on latest
 function Get-LatestVersion {
     Write-Host "Fetching latest version..." -ForegroundColor Yellow
-    git fetch --tags 2>$null
-    
+
     $tagsOutput = git ls-remote --tags origin 2>$null
     $tags = $tagsOutput | Select-String -Pattern "v(\d+)\.(\d+)\.(\d+)$" -AllMatches | ForEach-Object { $_.Matches.Value }
     
@@ -81,8 +80,9 @@ function Get-LatestVersion {
     } else {
         Write-Host "Checking out version $latestTag" -ForegroundColor Yellow
     }
-    
-    git checkout $latestTag 2>$null
+
+    git fetch origin tag $latestTag *>$null
+    git checkout $latestTag *>$null
     return $true  # Signal: update performed
 }
 
