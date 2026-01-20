@@ -50,7 +50,9 @@ try { docker --version | Out-Null } catch {
 function Get-LatestVersion {
     Write-Host "Fetching latest version..." -ForegroundColor Yellow
 
+    $ErrorActionPreference = 'SilentlyContinue'
     $tagsOutput = git ls-remote --tags origin 2>$null
+    $ErrorActionPreference = 'Stop'
     $tags = $tagsOutput | Select-String -Pattern "v(\d+)\.(\d+)\.(\d+)$" -AllMatches | ForEach-Object { $_.Matches.Value }
     
     if (-not $tags) {
@@ -65,8 +67,10 @@ function Get-LatestVersion {
     } | Select-Object -Last 1
     
     # Get current tag (if on a tag) or branch name
+    $ErrorActionPreference = 'SilentlyContinue'
     $currentTag = git describe --tags --exact-match 2>$null
     $currentBranch = git rev-parse --abbrev-ref HEAD 2>$null
+    $ErrorActionPreference = 'Stop'
     
     if ($currentTag -eq $latestTag) {
         Write-Host "Already on latest version ($latestTag)" -ForegroundColor Green
