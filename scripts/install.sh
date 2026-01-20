@@ -32,6 +32,7 @@ install_git() {
     local os=$(detect_os)
     echo -e "${YELLOW}Installing git...${NC}"
 
+
     case "$os" in
         ubuntu|debian|raspbian)
             sudo apt-get update && sudo apt-get install -y git
@@ -59,6 +60,39 @@ install_git() {
     esac
 }
 
+# Checkout latest version tag
+# Returns 0 if checkout performed, 1 if already on latest
+checkout_latest_version() {
+    echo -e "${YELLOW}Fetching latest version...${NC}"
+    git fetch --tags
+    LATEST_TAG=$(git ls-remote --tags origin | grep -o "v[0-9]*\.[0-9]*\.[0-9]*$" | sort -V | tail -n 1)
+    
+    if [ -z "$LATEST_TAG" ]; then
+        echo -e "${YELLOW}No version tags found, staying on current branch${NC}"
+        return 0
+    fi
+    
+    # Get current tag (if on a tag) or branch name
+    CURRENT_TAG=$(git describe --tags --exact-match 2>/dev/null || echo "")
+    CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+    
+    if [ "$CURRENT_TAG" = "$LATEST_TAG" ]; then
+        echo -e "${GREEN}Already on latest version ($LATEST_TAG)${NC}"
+        return 1
+    fi
+    
+    if [ -n "$CURRENT_TAG" ]; then
+        echo -e "${YELLOW}Updating from $CURRENT_TAG to $LATEST_TAG${NC}"
+    elif [ "$CURRENT_BRANCH" = "main" ]; then
+        echo -e "${YELLOW}Switching from main branch to $LATEST_TAG${NC}"
+    else
+        echo -e "${YELLOW}Checking out version $LATEST_TAG${NC}"
+    fi
+    
+    git checkout "$LATEST_TAG"
+    return 0
+}
+
 # Check for git
 if ! command -v git >/dev/null 2>&1; then
     echo -e "${YELLOW}Git is not installed.${NC}"
@@ -78,33 +112,41 @@ command -v docker >/dev/null 2>&1 || { echo -e "${RED}Error: docker is required 
 if [ -d "kea-research" ]; then
     if [ -f "kea-research/.env" ]; then
         # Folder + .env = Update mode
-        echo -e "${YELLOW}Existing installation found. Updating...${NC}"
+        echo -e "${YELLOW}Existing installation found. Checking for updates...${NC}"
         cd kea-research
-        git pull
-        echo ""
-        echo -e "${YELLOW}Rebuilding containers...${NC}"
-        if command -v docker compose >/dev/null 2>&1; then
-            docker compose up -d --build
+        if checkout_latest_version; then
+            echo ""
+            echo -e "${YELLOW}Rebuilding containers...${NC}"
+            if command -v docker compose >/dev/null 2>&1; then
+                docker compose up -d --build
+            else
+                docker-compose up -d --build
+            fi
+            echo ""
+            echo -e "${GREEN}${BOLD}════════════════════════════════════════════${NC}"
+            echo -e "${GREEN}${BOLD}  KEA Research updated successfully!${NC}"
+            echo -e "${GREEN}${BOLD}════════════════════════════════════════════${NC}"
+            echo ""
         else
-            docker-compose up -d --build
+            echo ""
+            echo -e "${GREEN}${BOLD}════════════════════════════════════════════${NC}"
+            echo -e "${GREEN}${BOLD}  No updates available.${NC}"
+            echo -e "${GREEN}${BOLD}════════════════════════════════════════════${NC}"
+            echo ""
         fi
-        echo ""
-        echo -e "${GREEN}${BOLD}════════════════════════════════════════════${NC}"
-        echo -e "${GREEN}${BOLD}  KEA Research updated successfully!${NC}"
-        echo -e "${GREEN}${BOLD}════════════════════════════════════════════${NC}"
-        echo ""
         exit 0
     else
         # Folder but no .env = Incomplete install, continue setup
         echo -e "${YELLOW}Incomplete installation found. Continuing setup...${NC}"
         cd kea-research
-        git pull
+        checkout_latest_version
     fi
 else
     # No folder = Fresh install
     echo -e "${YELLOW}Cloning repository...${NC}"
     git clone https://github.com/keabase/kea-research.git
     cd kea-research
+    checkout_latest_version
 fi
 
 # Copy environment file

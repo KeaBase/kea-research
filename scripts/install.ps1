@@ -42,38 +42,88 @@ try { docker --version | Out-Null } catch {
     exit 1
 }
 
+# Checkout latest version tag
+# Returns $true if checkout performed, $false if already on latest
+function Get-LatestVersion {
+    Write-Host "Fetching latest version..." -ForegroundColor Yellow
+    git fetch --tags 2>$null
+    
+    $tagsOutput = git ls-remote --tags origin 2>$null
+    $tags = $tagsOutput | Select-String -Pattern "v(\d+)\.(\d+)\.(\d+)$" -AllMatches | ForEach-Object { $_.Matches.Value }
+    
+    if (-not $tags) {
+        Write-Host "No version tags found, staying on current branch" -ForegroundColor Yellow
+        return $true
+    }
+    
+    $latestTag = $tags | Sort-Object { 
+        $v = $_ -replace '^v',''
+        $parts = $v -split '\.'
+        [int]$parts[0] * 10000 + [int]$parts[1] * 100 + [int]$parts[2]
+    } | Select-Object -Last 1
+    
+    # Get current tag (if on a tag) or branch name
+    $currentTag = git describe --tags --exact-match 2>$null
+    $currentBranch = git rev-parse --abbrev-ref HEAD 2>$null
+    
+    if ($currentTag -eq $latestTag) {
+        Write-Host "Already on latest version ($latestTag)" -ForegroundColor Green
+        return $false  # Signal: no update needed
+    }
+    
+    if ($currentTag) {
+        Write-Host "Updating from $currentTag to $latestTag" -ForegroundColor Yellow
+    } elseif ($currentBranch -eq "main") {
+        Write-Host "Switching from main branch to $latestTag" -ForegroundColor Yellow
+    } else {
+        Write-Host "Checking out version $latestTag" -ForegroundColor Yellow
+    }
+    
+    git checkout $latestTag 2>$null
+    return $true  # Signal: update performed
+}
+
 # Check installation state
 if (Test-Path "kea-research") {
     if (Test-Path "kea-research\.env") {
         # Folder + .env = Update mode
-        Write-Host "Existing installation found. Updating..." -ForegroundColor Yellow
+        Write-Host "Existing installation found. Checking for updates..." -ForegroundColor Yellow
         Set-Location kea-research
-        git pull
-        Write-Host ""
-        Write-Host "Rebuilding containers..." -ForegroundColor Yellow
-        try {
-            docker compose version | Out-Null
-            docker compose up -d --build
-        } catch {
-            docker-compose up -d --build
+        $updatePerformed = Get-LatestVersion
+        if ($updatePerformed) {
+            Write-Host ""
+            Write-Host "Rebuilding containers..." -ForegroundColor Yellow
+            try {
+                docker compose version | Out-Null
+                docker compose up -d --build
+            } catch {
+                docker-compose up -d --build
+            }
+            Write-Host ""
+            Write-Host "============================================" -ForegroundColor Green
+            Write-Host "  KEA Research updated successfully!" -ForegroundColor Green
+            Write-Host "============================================" -ForegroundColor Green
+            Write-Host ""
+        } else {
+            Write-Host ""
+            Write-Host "============================================" -ForegroundColor Green
+            Write-Host "  No updates available." -ForegroundColor Green
+            Write-Host "============================================" -ForegroundColor Green
+            Write-Host ""
         }
-        Write-Host ""
-        Write-Host "============================================" -ForegroundColor Green
-        Write-Host "  KEA Research updated successfully!" -ForegroundColor Green
-        Write-Host "============================================" -ForegroundColor Green
-        Write-Host ""
         exit 0
     } else {
         # Folder but no .env = Incomplete install, continue setup
         Write-Host "Incomplete installation found. Continuing setup..." -ForegroundColor Yellow
         Set-Location kea-research
-        git pull
+        Get-LatestVersion | Out-Null
     }
 } else {
     # No folder = Fresh install
     Write-Host "Cloning repository..." -ForegroundColor Yellow
     git clone https://github.com/keabase/kea-research.git
     Set-Location kea-research
+    Get-LatestVersion | Out-Null
 }
 
 # Copy environment file
