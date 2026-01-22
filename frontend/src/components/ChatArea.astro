@@ -574,4 +574,85 @@ const { t } = Astro.props;
   :global(.has-custom-bg .json-highlight) {
     background: var(--kea-bg-92);
   }
+
+  /* File attachment cards in messages */
+  :global(.file-attachment-card) {
+    display: block;
+    transition: transform 0.2s, box-shadow 0.2s;
+    min-width: 200px;
+    max-width: 300px;
+    flex-shrink: 0;
+  }
+
+  :global(.file-attachment-card:hover) {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+  }
+
+  :global(.file-attachment-card .bg-body-secondary) {
+    background-color: rgba(255, 255, 255, 0.1) !important;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    white-space: nowrap;
+  }
+
+  [data-bs-theme="light"] :global(.file-attachment-card .bg-body-secondary) {
+    background-color: rgba(0, 0, 0, 0.05) !important;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+  }
+
+  :global(.user-message .file-attachment-card .text-body) {
+    color: rgba(255, 255, 255, 0.95) !important;
+  }
+
+  :global(.user-message .file-attachment-card .text-muted) {
+    color: rgba(255, 255, 255, 0.7) !important;
+  }
+
+  :global(.file-attachments-container) {
+    max-width: 100%;
+  }
+
+  /* Text truncation for long filenames */
+  :global(.file-attachment-card .text-truncate) {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Image download icon */
+  :global(.chat-image-container) {
+    position: relative;
+    display: inline-block;
+  }
+
+  :global(.chat-image-download-icon) {
+    position: absolute;
+    bottom: 8px;
+    right: 8px;
+    width: 32px;
+    height: 32px;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    text-decoration: none;
+    opacity: 0;
+    transition: opacity 0.2s, background 0.2s;
+    z-index: 10;
+  }
+
+  :global(.chat-image-container:hover .chat-image-download-icon) {
+    opacity: 1;
+  }
+
+  :global(.chat-image-download-icon:hover) {
+    background: rgba(0, 0, 0, 0.8);
+  }
+
+  :global(.chat-image-download-icon i) {
+    font-size: 16px;
+  }
 </style>

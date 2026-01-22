@@ -411,7 +411,7 @@ export const PipelineManager = {
   /**
    * Handle step4_done event - show final answer
    */
-  onStep4Done(provider: string, finalAnswer: string | null, confidence: number | null): void {
+  onStep4Done(provider: string, finalAnswer: string | null, confidence: number | null, timestamp?: string): void {
     if (!finalAnswer || !this.state) return;
 
     const id = this.responseCounter;
@@ -469,7 +469,10 @@ export const PipelineManager = {
       const cached = getProviderCache()[provider];
       const displayName = cached?.display_name || config.name;
       const iconHtml = `<span class="me-1">${getProviderIconHtml(provider)}</span>`;
-      metaTextEl.innerHTML = `${iconHtml} Synthesized by ${displayName}`;
+      const timestampHtml = timestamp
+        ? `<span class="mx-2">•</span><i class="bi bi-calendar2-event me-1"></i>${new Date(timestamp).toLocaleString()}`
+        : '';
+      metaTextEl.innerHTML = `${iconHtml} Synthesized by ${displayName}${timestampHtml}`;
     }
 
     // Attach action handlers (copy, export, TTS)
@@ -668,7 +671,7 @@ export const PipelineManager = {
         if (step === 4) {
           const finalAnswer = typeof data.final_answer === 'string' ? data.final_answer : null;
           const confidence = typeof data.confidence === 'number' ? data.confidence : null;
-          this.onStep4Done(provider, finalAnswer, confidence);
+          this.onStep4Done(provider, finalAnswer, confidence, new Date().toISOString());
         }
       } else if (action === 'error') {
         this.onError(step, provider, asString(data.error));
@@ -822,7 +825,7 @@ export const PipelineManager = {
   /**
    * Restore UI from stored pipeline state (for loading chat history)
    */
-  restoreFromState(): void {
+  restoreFromState(timestamp?: string): void {
     if (!this.state) return;
     const id = this.responseCounter;
 
@@ -914,7 +917,7 @@ export const PipelineManager = {
       }
 
       // Show final answer card
-      this.onStep4Done(data.provider, data.final_answer, data.confidence);
+      this.onStep4Done(data.provider, data.final_answer, data.confidence, timestamp);
     }
 
     // Update step counts

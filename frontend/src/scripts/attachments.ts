@@ -4,15 +4,40 @@
 
 import { StorageUtils } from './storage';
 import { ImageCompressor } from './image';
+import { fileTypeFromBlob } from 'file-type';
 
 declare function t(key: string, vars?: Record<string, string | number>): string;
 
 interface Attachment {
   type: 'image' | 'file' | 'youtube' | 'wikipedia';
-  file?: File;
-  url?: string;
+  file?: File;              // Keep for images
+  url?: string;             // Keep for youtube/wikipedia
   name?: string;
+
+  // For text-based files
+  textContent?: string;     // Extracted UTF-8 text
+  extension?: string;       // e.g., "py", "json", "txt"
+  sizeBytes?: number;       // Original file size
 }
+
+// File limits
+const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10MB per file
+const MAX_TOTAL_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10MB total (all files combined)
+
+// Supported text file extensions
+const SUPPORTED_TEXT_EXTENSIONS = [
+  // Programming languages
+  'js', 'jsx', 'ts', 'tsx', 'py', 'java', 'rb', 'php', 'cs', 'go', 'rs', 'c', 'cpp', 'h', 'hpp',
+  // Shell scripts
+  'sh', 'bash',
+  // Web files
+  'html', 'css', 'scss', 'sass', 'vue', 'svelte',
+  // Config & data files
+  'json', 'yaml', 'yml', 'toml', 'ini', 'env',
+  'csv', 'xml', 'sql',
+  // Documentation
+  'md', 'mdx', 'txt', 'log'
+];
 
 export const AttachmentManager = {
   attachments: [] as Attachment[],
@@ -78,7 +103,31 @@ export const AttachmentManager = {
       });
     }
 
-    console.log('AttachmentManager initialized (images enabled)');
+    // === Wire up file attachment button ===
+    const attachFileBtn = document.getElementById('attachFile');
+    const fileInput = document.getElementById('fileInput') as HTMLInputElement | null;
+
+    if (attachFileBtn && fileInput) {
+      // Click button -> trigger file input
+      attachFileBtn.addEventListener('click', () => {
+        fileInput.click();
+      });
+
+      // File input change -> process selected files
+      fileInput.addEventListener('change', async (e) => {
+        const files = (e.target as HTMLInputElement).files;
+        if (!files || files.length === 0) return;
+
+        for (let i = 0; i < files.length; i++) {
+          await this.addAttachment('file', files[i]);
+        }
+
+        // Reset input
+        fileInput.value = '';
+      });
+    }
+
+    console.log('AttachmentManager initialized (images + files enabled)');
   },
 
   updateIndicator(): void {
@@ -97,10 +146,63 @@ export const AttachmentManager = {
   },
 
   async addAttachment(type: 'image' | 'file', file: File): Promise<void> {
+    // Handle file attachment
+    if (type === 'file') {
+      const extension = this.getFileExtension(file.name);
+
+      // Validate extension
+      if (!this.isSupportedTextFile(extension)) {
+        alert(`Unsupported file type: .${extension}\nSupported: .py, .js, .json, .txt, .csv, .md, etc.`);
+        return;
+      }
+
+      // Content-based file type detection using file-type library
+      const detectedType = await fileTypeFromBlob(file);
+
+      // If file-type detected a specific binary format, reject it
+      if (detectedType) {
+        alert(`This file appears to be a ${detectedType.ext} file (${detectedType.mime}), not text.\nPlease attach text files only.`);
+        return;
+      }
+
+      // Additional MIME type check for files with detected MIME types
+      if (file.type && !this.isTextMimeType(file.type)) {
+        alert(`This file appears to be binary (${file.type}), not text.\nPlease attach text files only.`);
+        return;
+      }
+
+      // Validate file size
+      if (file.size > MAX_FILE_SIZE_BYTES) {
+        alert(`File too large: ${(file.size / 1024 / 1024).toFixed(1)}MB. Maximum is 10MB.`);
+        return;
+      }
+
+      // Check total file size across all files
+      const currentTotalSize = this.attachments
+        .filter(a => a.type === 'file')
+        .reduce((sum, a) => sum + (a.file?.size || 0), 0);
+
+      if (currentTotalSize + file.size > MAX_TOTAL_FILE_SIZE_BYTES) {
+        alert(`Maximum total file size is ${MAX_TOTAL_FILE_SIZE_BYTES / 1024 / 1024}MB. Please remove some files first.`);
+        return;
+      }
+
+      // Store File object (text will be extracted at send time)
+      this.attachments.push({
+        type: 'file',
+        file: file,
+        name: file.name,
+      });
+
+      this.updateAttachmentPreview();
+
+      return;
+    }
+
     // Validate image type
     if (type === 'image') {
       const SUPPORTED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-      if (!SUPPORTED_TYPES.includes(file.type)) {
+      if (SUPPORTED_TYPES.indexOf(file.type) === -1) {
         alert(`Unsupported image format: ${file.type}. Please use JPEG, PNG, WebP, or GIF.`);
         return;
       }
@@ -112,8 +214,8 @@ export const AttachmentManager = {
         return;
       }
 
-      // Limit: 5 images per message (Claude's limit)
-      const MAX_IMAGES = 5;
+      // Limit: 8 images per message (Mistral's API limit, https://docs.mistral.ai/capabilities/vision )
+      const MAX_IMAGES = 8;
       const currentImageCount = this.attachments.filter((att) => att.type === 'image').length;
       if (currentImageCount >= MAX_IMAGES) {
         alert(`Maximum ${MAX_IMAGES} images per message. Please remove some images first.`);
@@ -183,7 +285,6 @@ export const AttachmentManager = {
 
     const previewHTML = this.attachments
       .map((att, index) => {
-        let icon = '<i class="bi bi-paperclip"></i>';
         let preview = '';
 
         // Show thumbnail for images
@@ -199,17 +300,32 @@ export const AttachmentManager = {
 
           // Clean up object URL after a delay
           setTimeout(() => URL.revokeObjectURL(imgUrl), 60000);
-        } else {
-          preview = icon;
+        }
+        // Show icon for files
+        else if (att.type === 'file' && att.file) {
+          const extension = this.getFileExtension(att.file.name);
+          const iconClass = this.getFileIcon(extension);
+          const sizeKB = (att.file.size / 1024).toFixed(1);
+          preview = `
+            <div class="d-flex align-items-center">
+              <i class="${iconClass} fs-4 me-2 text-primary"></i>
+              <div class="small">
+                <div class="text-body">${att.name}</div>
+                <div class="text-muted">${sizeKB} KB</div>
+              </div>
+            </div>
+          `;
+        }
+        else {
+          preview = '<i class="bi bi-paperclip"></i>';
         }
 
         return `
           <div class="d-inline-flex align-items-center rounded px-2 py-1 me-2 mb-2 attachment-preview-item">
             ${preview}
-            <span class="small me-2 text-body">${att.name}</span>
             <button
               type="button"
-              class="btn-close attachment-preview-close"
+              class="btn-close attachment-preview-close ms-2"
               aria-label="Remove"
               data-attachment-index="${index}"
             ></button>
@@ -284,6 +400,67 @@ export const AttachmentManager = {
   clearAttachments(): void {
     this.attachments = [];
     this.updateAttachmentPreview();
+  },
+
+  /**
+   * Get file extension from filename
+   */
+  getFileExtension(filename: string): string {
+    const parts = filename.split('.');
+    return parts.length > 1 ? parts.pop()!.toLowerCase() : '';
+  },
+
+  /**
+   * Check if file extension is supported for text extraction
+   */
+  isSupportedTextFile(extension: string): boolean {
+    return SUPPORTED_TEXT_EXTENSIONS.indexOf(extension) !== -1;
+  },
+
+  /**
+   * Check if MIME type indicates a text file (safe to read as UTF-8)
+   */
+  isTextMimeType(mimeType: string): boolean {
+    const SAFE_TEXT_MIME_TYPES = [
+      'text/plain',
+      'text/html',
+      'text/css',
+      'text/javascript',
+      'text/csv',
+      'text/xml',
+      'text/markdown',
+      'application/json',
+      'application/xml',
+      'application/x-yaml',
+      'text/x-yaml',
+      'application/javascript',
+      'application/x-sh'
+    ];
+
+    // Check if MIME type starts with "text/" or is in our safe list
+    if (mimeType.indexOf('text/') === 0) {
+      return true;
+    }
+
+    return SAFE_TEXT_MIME_TYPES.indexOf(mimeType) !== -1;
+  },
+
+  /**
+   * Get Bootstrap icon class for file extension
+   */
+  getFileIcon(extension: string): string {
+    // Bootstrap Icons has filetype icons for these extensions
+    const KNOWN_ICONS = [
+      'cs', 'java', 'js', 'jsx', 'php', 'py', 'rb', 'sh', 'tsx',
+      'css', 'html', 'sass', 'scss',
+      'csv', 'json', 'md', 'sql', 'txt', 'xml', 'yml', 'yaml',
+      'ts', 'go', 'rs', 'c', 'cpp', 'vue'
+    ];
+
+    if (KNOWN_ICONS.indexOf(extension) !== -1) {
+      return `bi bi-filetype-${extension}`;
+    }
+    return 'bi bi-file-earmark-code'; // Generic code file icon
   }
 };
 

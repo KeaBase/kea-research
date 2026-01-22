@@ -51,9 +51,8 @@ const { t } = Astro.props;
             </button>
           </li>
           <li>
-            <button class="dropdown-item d-flex align-items-center gap-2 disabled" type="button" id="attachFile" disabled>
-              <i class="bi bi-files text-kea opacity-50"></i> {t('attachments.attachFile')}
-              <span class="badge bg-secondary ms-auto">{t('common.soon')}</span>
+            <button class="dropdown-item d-flex align-items-center gap-2" type="button" id="attachFile">
+              <i class="bi bi-paperclip text-kea"></i> {t('attachments.attachFile')}
             </button>
           </li>
           <li><hr class="dropdown-divider"></li>
@@ -86,7 +85,7 @@ const { t } = Astro.props;
       </div>
         {/* Hidden file inputs */}
         <input type="file" id="imageInput" class="d-none" accept="image/*" multiple>
-        <input type="file" id="fileInput" class="d-none">
+        <input type="file" id="fileInput" class="d-none" accept="text/plain,text/html,text/css,text/javascript,application/json,text/csv,text/xml,text/markdown,application/xml,text/x-yaml,.js,.jsx,.ts,.tsx,.py,.java,.rb,.php,.cs,.go,.rs,.c,.cpp,.h,.hpp,.sh,.bash,.vue,.svelte,.scss,.sass,.json,.yaml,.yml,.toml,.ini,.env,.csv,.xml,.sql,.md,.mdx,.txt,.log" multiple>
       </div>
       <button class="btn btn-kea rounded-4 chat-send-btn" id="sendBtn">
         <i class="bi bi-search me-1"></i> <span class="send-btn-text">{t('chat.research') || 'Research'}</span>
@@ -219,6 +218,11 @@ const { t } = Astro.props;
   /* Attachment preview close button */
   :global(.attachment-preview-close) {
     font-size: 0.75rem;
+  }
+
+  /* File attachment icon size */
+  :global(.attachment-preview-item .bi[class*="filetype"]) {
+    font-size: 2rem;
   }
 
   /* Chat message image */

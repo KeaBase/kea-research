@@ -27,7 +27,18 @@ interface ImageContent {
   source: ImageSource;
 }
 
-type MessageContent = string | Array<TextContent | ImageContent>;
+interface DocumentContent {
+  type: 'document';
+  source: {
+    type: 'base64';
+    media_type: string;
+    data: string;
+  };
+  name: string;
+  extension?: string;  // File extension for icon display
+}
+
+type MessageContent = string | Array<TextContent | ImageContent | DocumentContent>;
 
 interface Message {
   role: 'user' | 'assistant';
@@ -249,14 +260,51 @@ export const ChatManager = {
     // Build message content (text-only or multimodal)
     let messageContent: MessageContent;
     const imageAttachments = attachments.filter(att => att.type === 'image');
+    const fileAttachments = attachments.filter(att => att.type === 'file');
 
-    if (imageAttachments.length > 0) {
+    if (imageAttachments.length > 0 || fileAttachments.length > 0) {
       // Multimodal message: array of content blocks
-      const contentBlocks: Array<TextContent | ImageContent> = [];
+      const contentBlocks: Array<TextContent | ImageContent | DocumentContent> = [];
 
-      // Add text block (if any)
-      if (message) {
-        contentBlocks.push({ type: 'text', text: message });
+      // Build text for AI (user input + XML for files)
+      let aiText = message;
+
+      // Convert files to base64
+      const fileDataMap = new Map<any, { dataUrl: string; mediaType: string; base64Data: string }>();
+
+      if (fileAttachments.length > 0) {
+        // Read each file once and cache the result
+        for (const att of fileAttachments) {
+          if (!att.file) continue;
+
+          try {
+            const dataUrl = await this.convertFileToBase64(att.file);
+            const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+            if (!match) {
+              console.error('Invalid data URL format for file:', att.name);
+              continue;
+            }
+
+            const [, mediaType, base64Data] = match;
+            fileDataMap.set(att, { dataUrl, mediaType, base64Data });
+          } catch (error) {
+            console.error('Failed to convert file to base64:', att.name, error);
+            alert(`Failed to read file: ${att.name}\n${error instanceof Error ? error.message : 'Unknown error'}`);
+          }
+        }
+
+        // Build XML from cached base64 data
+        const documentsXML = this.buildDocumentsXMLFromBase64(fileDataMap);
+        if (message) {
+          aiText = documentsXML + '\n\n' + message;
+        } else {
+          aiText = documentsXML;
+        }
+      }
+
+      // Add text block if there's any text
+      if (aiText) {
+        contentBlocks.push({ type: 'text', text: aiText });
       }
 
       // Add image blocks
@@ -288,7 +336,28 @@ export const ChatManager = {
           });
         } catch (error) {
           console.error('Failed to convert image to base64:', att.name, error);
+          alert(`Failed to read image: ${att.name}\n${error instanceof Error ? error.message : 'Unknown error'}`);
         }
+      }
+
+      // Add document blocks using cached base64 data
+      for (const att of fileAttachments) {
+        const fileData = fileDataMap.get(att);
+        if (!fileData) continue;
+
+        const filename = att.name || att.file.name;
+        const extension = AttachmentManager.getFileExtension(filename);
+
+        contentBlocks.push({
+          type: 'document',
+          source: {
+            type: 'base64',
+            media_type: fileData.mediaType,
+            data: fileData.base64Data
+          },
+          name: filename,
+          extension: extension
+        });
       }
 
       messageContent = contentBlocks;
@@ -315,7 +384,7 @@ export const ChatManager = {
     }
 
     // Display user message
-    this.displayUserMessage(messageContent);
+    this.displayUserMessage(messageContent, new Date().toISOString());
 
     // Clear input
     input.value = '';
@@ -424,9 +493,19 @@ export const ChatManager = {
     this.abortController = new AbortController();
 
     try {
+      // Filter out DocumentContent blocks before sending to backend (backend doesn't support them)
+      const messagesForBackend = this.messages.map(msg => {
+        if (Array.isArray(msg.content)) {
+          // Filter out document blocks - backend doesn't support them
+          const filteredContent = msg.content.filter(block => block.type !== 'document');
+          return { role: msg.role, content: filteredContent };
+        }
+        return msg;
+      });
+
       // Build request body with optional provider_set_id
       const requestBody: { messages: Message[]; provider_set_id?: number } = {
-        messages: this.messages,
+        messages: messagesForBackend,
       };
 
       const activeSetId = getActiveSetId();
@@ -500,34 +579,56 @@ export const ChatManager = {
     }
   },
 
-  displayUserMessage(content: MessageContent): void {
+  displayUserMessage(content: MessageContent, timestamp?: string): void {
     const chatArea = document.getElementById('chatMessages');
     if (!chatArea) return;
 
     let contentHTML = '';
+    const documentBlocks: DocumentContent[] = [];
 
     if (typeof content === 'string') {
       // Text-only message
       contentHTML = `<div>${escapeHtml(content)}</div>`;
     } else {
-      // Multimodal message - separate text and images
+      // Multimodal message - separate text, images, and documents
       const textParts: string[] = [];
       const imageParts: string[] = [];
 
       for (const block of content) {
         if (block.type === 'text') {
-          textParts.push(escapeHtml(block.text));
+          // Filter out XML documents from display (already shown as cards)
+          const text = block.text;
+          const trimmedText = text.trim();
+          if (trimmedText.indexOf('<documents>') !== 0) {
+            textParts.push(escapeHtml(text));
+          } else {
+            // Extract user message after XML
+            const afterXML = text.split('</documents>')[1];
+            if (afterXML && afterXML.trim()) {
+              textParts.push(escapeHtml(afterXML.trim()));
+            }
+          }
         } else if (block.type === 'image') {
           // Reconstruct data URL for display
           const dataUrl = `data:${block.source.media_type};base64,${block.source.data}`;
           imageParts.push(`
-            <img
-              src="${dataUrl}"
-              class="rounded chat-message-image"
-              alt="User image"
-              onclick="window.open(this.src, '_blank')"
-            />
+            <div class="position-relative chat-image-container">
+              <img
+                src="${dataUrl}"
+                class="rounded chat-message-image"
+                alt="User image"
+                onclick="window.open(this.src, '_blank')"
+              />
+              <a href="${dataUrl}" download="image.jpg"
+                 class="chat-image-download-icon position-absolute"
+                 onclick="event.stopPropagation()">
+                <i class="bi bi-download"></i>
+              </a>
+            </div>
           `);
+        } else if (block.type === 'document') {
+          // Collect document blocks for rendering
+          documentBlocks.push(block);
         }
       }
 
@@ -546,6 +647,43 @@ export const ChatManager = {
       }
     }
 
+    // Display file attachments
+    if (documentBlocks.length > 0) {
+      const fileCardsHTML = documentBlocks.map(doc => {
+        // Use stored extension if available, otherwise extract from filename
+        const extension = doc.extension || AttachmentManager.getFileExtension(doc.name);
+        const iconClass = AttachmentManager.getFileIcon(extension);
+
+        // Reconstruct file size from base64 data
+        const base64Length = doc.source.data.length;
+        const sizeBytes = (base64Length * 3) / 4;
+        const sizeKB = (sizeBytes / 1024).toFixed(1);
+
+        // Create download link
+        const dataUrl = `data:${doc.source.media_type};base64,${doc.source.data}`;
+
+        return `
+          <a href="${dataUrl}" download="${escapeHtml(doc.name)}"
+             class="file-attachment-card text-decoration-none">
+            <div class="d-flex align-items-center gap-2 bg-body-secondary rounded p-2">
+              <i class="${iconClass} fs-4 text-primary flex-shrink-0"></i>
+              <div class="flex-grow-1 overflow-hidden">
+                <div class="small fw-semibold text-body text-truncate">${escapeHtml(doc.name)}</div>
+                <div class="text-muted" style="font-size: 0.75rem;">${sizeKB} KB</div>
+              </div>
+              <i class="bi bi-download text-muted flex-shrink-0"></i>
+            </div>
+          </a>
+        `;
+      }).join('');
+
+      contentHTML += `
+        <div class="file-attachments-container mt-2 d-flex gap-2 overflow-x-auto pb-1">
+          ${fileCardsHTML}
+        </div>
+      `;
+    }
+
     const messageHTML = `
       <div class="user-message mb-3">
         <div class="d-flex justify-content-end">
@@ -553,6 +691,13 @@ export const ChatManager = {
             ${contentHTML}
           </div>
         </div>
+        ${timestamp ? `
+        <div class="d-flex justify-content-end mt-1">
+          <small class="text-muted">
+            <i class="bi bi-calendar2-event me-1"></i>${new Date(timestamp).toLocaleString()}
+          </small>
+        </div>
+        ` : ''}
       </div>
     `;
     chatArea.insertAdjacentHTML('beforeend', messageHTML);
@@ -912,14 +1057,14 @@ export const ChatManager = {
           // Add to in-memory messages
           this.messages.push({ role: 'user', content: msg.content });
           // Display user message
-          this.displayUserMessage(msg.content);
+          this.displayUserMessage(msg.content, msg.timestamp);
         } else if (msg.role === 'assistant') {
           // Display assistant response
           const content = msg.content || (msg.providerResponses?.kea?.content);
           if (content) {
             // Check if we have pipeline data to restore full UI
             if (msg.pipelineData) {
-              this.displayPipelineFromStorage(msg.pipelineData);
+              this.displayPipelineFromStorage(msg.pipelineData, msg.timestamp);
             } else {
               // Fallback: just show final answer card (old messages)
               this.displayAssistantMessage(content);
@@ -969,7 +1114,7 @@ export const ChatManager = {
     chatArea.insertAdjacentHTML('beforeend', messageHTML);
   },
 
-  displayPipelineFromStorage(pipelineData: PipelineData): void {
+  displayPipelineFromStorage(pipelineData: PipelineData, timestamp?: string): void {
     const chatArea = document.getElementById('chatMessages');
     if (!chatArea) return;
 
@@ -988,8 +1133,74 @@ export const ChatManager = {
 
     // Create pipeline container and restore UI from state
     PipelineManager.createPipelineContainer(chatArea);
-    PipelineManager.restoreFromState();
+    PipelineManager.restoreFromState(timestamp);
   },
+
+  /**
+   * Convert text file to base64 data URL
+   */
+  async convertFileToBase64(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === 'string') {
+          resolve(reader.result); // Returns "data:text/plain;base64,..."
+        } else {
+          reject(new Error('FileReader result is not a string'));
+        }
+      };
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file); // Read as base64, not text
+    });
+  },
+
+  /**
+   * Extract text content from base64 file data
+   */
+  extractTextFromBase64(dataUrl: string): string {
+    const match = dataUrl.match(/^data:[^;]+;base64,(.+)$/);
+    if (!match) return '';
+
+    const base64Data = match[1];
+    const binaryString = atob(base64Data);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+
+    const decoder = new TextDecoder('utf-8');
+    return decoder.decode(bytes);
+  },
+
+  /**
+   * Build <documents> XML from cached base64 file data
+   */
+  buildDocumentsXMLFromBase64(fileDataMap: Map<any, { dataUrl: string; mediaType: string; base64Data: string }>): string {
+    if (fileDataMap.size === 0) return '';
+
+    const fileBlocks: string[] = [];
+
+    fileDataMap.forEach((fileData, att) => {
+      try {
+        const textContent = this.extractTextFromBase64(fileData.dataUrl);
+        const name = att.name || att.file?.name || 'untitled';
+
+        // XML escape
+        const escapedContent = textContent
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&apos;');
+
+        fileBlocks.push(`<file name="${name}">\n${escapedContent}\n</file>`);
+      } catch (error) {
+        console.error('Failed to process file:', att.name, error);
+      }
+    });
+
+    return '<documents>\n' + fileBlocks.join('\n') + '\n</documents>';
+  }
 };
 
 // Make it globally available

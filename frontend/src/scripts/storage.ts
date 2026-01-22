@@ -63,7 +63,18 @@ export interface ImageContent {
   source: ImageSource;
 }
 
-export type MessageContent = string | Array<TextContent | ImageContent>;
+export interface DocumentContent {
+  type: 'document';
+  source: {
+    type: 'base64';
+    media_type: string;
+    data: string;
+  };
+  name: string;
+  extension?: string;
+}
+
+export type MessageContent = string | Array<TextContent | ImageContent | DocumentContent>;
 
 export interface ChatMessage {
   id?: number;
